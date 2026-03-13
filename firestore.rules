@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required)
+    //   - cpf: string (required)
+    //   - role: string (required, admin|member)
+    //   - fullName: string (required)
+    //   - spiritualName: string
+    //   - birthDate: string (ISO date)
+    //   - rg: string
+    //   - address: map
+    //   - contacts: map
+    //   - profession: string
+    //   - parents: string
+    //   - spiritualData: map
+    //
+    // Collection: events
+    // Document ID: {eventId}
+    // Fields:
+    //   - title: string (required)
+    //   - date: string (ISO date-time)
+    //   - type: string (required)
+    //   - description: string
+    //   - createdBy: string
+    //
+    // Collection: settings
+    // Document ID: global
+    // Fields:
+    //   - terreiroName: string
+    //   - logoUrl: string
+    //   - welcomeMessage: string
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "tvrubira@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'cpf', 'role', 'fullName']) &&
+             data.uid is string &&
+             data.cpf is string &&
+             data.cpf.size() >= 11 && data.cpf.size() <= 14 &&
+             data.role in ['admin', 'member'] &&
+             data.fullName is string && data.fullName.size() > 0;
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll(['title', 'date', 'type']) &&
+             data.title is string && data.title.size() > 0 &&
+             data.date is string &&
+             data.type in ['gira', 'festa', 'obrigacao', 'reuniao', 'outro'];
+    }
+
+    function isValidSettings(data) {
+      return data.terreiroName is string && data.terreiroName.size() > 0;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isOwner(uid) && request.resource.data.role == 'member' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ((isOwner(uid) && request.resource.data.role == resource.data.role) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /events/{eventId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin() && isValidEvent(request.resource.data);
+    }
+
+    match /settings/global {
+      allow read: if true;
+      allow write: if isAdmin() && isValidSettings(request.resource.data);
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

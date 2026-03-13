@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Membro do terreiro com dados pessoais e espirituais.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "ID único do Firebase Auth" },
+        "cpf": { "type": "string", "description": "CPF do usuário (usado para login)" },
+        "role": { "type": "string", "enum": ["admin", "member"], "description": "Papel do usuário no sistema" },
+        "fullName": { "type": "string" },
+        "photoUrl": { "type": "string", "description": "URL da foto de perfil do usuário" },
+        "spiritualName": { "type": "string", "description": "Nome de santo/terreiro" },
+        "birthDate": { "type": "string", "format": "date" },
+        "rg": { "type": "string" },
+        "address": { "type": "object", "properties": {
+          "street": { "type": "string" },
+          "number": { "type": "string" },
+          "neighborhood": { "type": "string" },
+          "city": { "type": "string" },
+          "state": { "type": "string" },
+          "zipCode": { "type": "string" }
+        }},
+        "contacts": { "type": "object", "properties": {
+          "phone": { "type": "string" },
+          "whatsapp": { "type": "string" },
+          "email": { "type": "string" }
+        }},
+        "profession": { "type": "string" },
+        "parents": { "type": "string", "description": "Nome dos pais/responsáveis" },
+        "spiritualData": { "type": "object", "properties": {
+          "timeInUmbanda": { "type": "string" },
+          "previousReligion": { "type": "string" },
+          "orixaHead": { "type": "string" },
+          "orixaAdjunto": { "type": "string" },
+          "mediumType": { "type": "string", "description": "Cambono, Ogã, Incorporação, etc." },
+          "chefeCoroa": { "type": "string" },
+          "orixas": { "type": "string", "description": "Lista de Orixás separada por vírgula" },
+          "entities": { "type": "string", "description": "Lista de Entidades separada por vírgula" },
+          "previousPaiMae": { "type": "string" },
+          "entryDate": { "type": "string", "format": "date" },
+          "obligationsHistory": { "type": "string" }
+        }}
+      },
+      "required": ["uid", "cpf", "role", "fullName"]
+    },
+    "Event": {
+      "title": "Event",
+      "description": "Evento ou compromisso da agenda do terreiro.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["gira", "festa", "obrigacao", "reuniao", "outro"] },
+        "createdBy": { "type": "string", "description": "UID do administrador que criou" }
+      },
+      "required": ["title", "date", "type"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Configurações globais do terreiro.",
+      "type": "object",
+      "properties": {
+        "terreiroName": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "welcomeMessage": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "Coleção de membros do terreiro."
+    },
+    "/events/{eventId}": {
+      "schema": "Event",
+      "description": "Agenda de eventos do terreiro."
+    },
+    "/settings/global": {
+      "schema": "Settings",
+      "description": "Configurações do terreiro (nome, logo, etc)."
+    }
+  }
+}
