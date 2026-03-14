@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { callGeminiWithRetry, callGeminiStreamWithRetry } from './services/geminiService';
 import Markdown from 'react-markdown';
 import { 
   LogOut, 
@@ -510,10 +511,8 @@ function Dashboard({ profile, settings, events }: { profile: UserProfile | null,
       if (!profile) return;
       setLoadingAI(true);
       try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-        
         // Fetch Daily Message
-        const msgResponse = await ai.models.generateContent({
+        const msgResponse = await callGeminiWithRetry({
           model: "gemini-3-flash-preview",
           contents: `Gere uma mensagem curta de sabedoria ou um "Axé do dia" para um membro de um terreiro de Umbanda. 
           O membro se chama ${profile.fullName} e tem como Orixá de cabeça ${profile.spiritualData?.orixaHead || 'não informado'}. 
@@ -522,7 +521,7 @@ function Dashboard({ profile, settings, events }: { profile: UserProfile | null,
         setDailyMessage(msgResponse.text);
 
         // Fetch Doctrine of the Day
-        const doctrineResponse = await ai.models.generateContent({
+        const doctrineResponse = await callGeminiWithRetry({
           model: "gemini-3-flash-preview",
           config: {
             responseMimeType: "application/json",
@@ -542,16 +541,16 @@ function Dashboard({ profile, settings, events }: { profile: UserProfile | null,
         setDoctrine(doctrineData);
 
         // Fetch Weekly Forecast
-        const forecastResponse = await ai.models.generateContent({
+        const forecastResponse = await callGeminiWithRetry({
           model: "gemini-3-flash-preview",
           contents: `Gere uma breve "Previsão Espiritual" para a semana para um membro de Umbanda.
           Orixá de cabeça: ${profile.spiritualData?.orixaHead || 'não informado'}.
           A previsão deve ser focada em equilíbrio, axé e recomendações de postura espiritual. Máximo 300 caracteres.`,
         });
         setForecast(forecastResponse.text);
-
-      } catch (error) {
+      } catch (error: any) {
         console.error('AI Error:', error);
+        setDailyMessage("Não foi possível carregar a mensagem do dia. Tente novamente mais tarde.");
       } finally {
         setLoadingAI(false);
       }
@@ -775,8 +774,7 @@ function ProfileView({ profile, onUpdate }: { profile: UserProfile | null, onUpd
   const handleGetFeedback = async () => {
     setLoadingFeedback(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: "gemini-3-flash-preview",
         contents: `Analise o perfil espiritual deste médium de Umbanda e dê uma sugestão de desenvolvimento ou estudo.
         Nome: ${profile?.fullName}
@@ -787,8 +785,9 @@ function ProfileView({ profile, onUpdate }: { profile: UserProfile | null, onUpd
         Dê um conselho curto, motivador e respeitoso. Máximo 400 caracteres.`,
       });
       setAiFeedback(response.text);
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI Feedback Error:', error);
+      setAiFeedback("Não foi possível gerar o conselho agora. Tente novamente mais tarde.");
     } finally {
       setLoadingFeedback(false);
     }
@@ -977,8 +976,7 @@ function AdminMembersView() {
   const handleGenerateInsight = async (member: UserProfile) => {
     setLoadingInsight(member.uid);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: "gemini-3-flash-preview",
         contents: `Analise o perfil espiritual deste membro de um terreiro de Umbanda e forneça um breve insight (máximo 3 frases) sobre seu desenvolvimento ou pontos de atenção para os dirigentes.
         
@@ -991,9 +989,9 @@ function AdminMembersView() {
         - Histórico de Obrigações: ${member.spiritualData?.obligationsHistory || 'Não informado'}`,
       });
       setAiInsight({ uid: member.uid, text: response.text });
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI Error:', error);
-      alert('Erro ao gerar insight.');
+      alert(error.message || 'Erro ao gerar insight.');
     } finally {
       setLoadingInsight(null);
     }
@@ -1245,15 +1243,14 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
     }
     setIsGenerating(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: "gemini-3-flash-preview",
         contents: `Escreva uma descrição curta e convidativa para um evento de terreiro de Umbanda chamado "${formData.title}". O tipo do evento é "${formData.type}". Seja respeitoso e use termos adequados da religião.`,
       });
       setFormData({ ...formData, description: response.text });
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI Error:', error);
-      alert('Erro ao gerar descrição com IA.');
+      alert(error.message || 'Erro ao gerar descrição com IA.');
     } finally {
       setIsGenerating(false);
     }
@@ -1266,8 +1263,7 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
     }
     setIsGeneratingImage(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: 'gemini-2.5-flash-image',
         contents: {
           parts: [
@@ -1289,9 +1285,9 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
           setFormData({ ...formData, imageUrl });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI Image Error:', error);
-      alert('Erro ao gerar imagem com IA.');
+      alert(error.message || 'Erro ao gerar imagem com IA.');
     } finally {
       setIsGeneratingImage(false);
     }
@@ -1300,8 +1296,7 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
   const handleGenerateScript = async (event: TerreiroEvent) => {
     setIsGeneratingScript(event.id);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: "gemini-3-flash-preview",
         contents: `Gere um roteiro sugerido para um evento de Umbanda.
         Título: ${event.title}
@@ -1315,9 +1310,9 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
         4. Sequência de fechamento.`,
       });
       setScriptModal({ title: event.title, content: response.text });
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI Script Error:', error);
-      alert('Erro ao gerar roteiro com IA.');
+      alert(error.message || 'Erro ao gerar roteiro com IA.');
     } finally {
       setIsGeneratingScript(null);
     }
@@ -1556,8 +1551,7 @@ function AIAssistantView({ profile, settings }: { profile: UserProfile | null, s
     setLoading(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const stream = await ai.models.generateContentStream({
+      const stream = await callGeminiStreamWithRetry({
         model: "gemini-3-flash-preview",
         config: {
           systemInstruction: `Você é um Assistente Espiritual de um terreiro de Umbanda chamado "${settings?.terreiroName}". 
@@ -1736,8 +1730,7 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
     if (!query.trim() || loading) return;
     setLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: "gemini-3-flash-preview",
         config: {
           responseMimeType: "application/json",
@@ -1756,9 +1749,9 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
         Retorne uma lista de ervas, instruções de preparo e o propósito espiritual.`,
       });
       setResult(JSON.parse(response.text));
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI Error:', error);
-      alert('Erro ao consultar o guia de ervas.');
+      alert(error.message || 'Erro ao consultar o guia de ervas.');
     } finally {
       setLoading(false);
     }
@@ -1867,8 +1860,7 @@ function PontoLibraryView() {
     if (!search.trim() || loading) return;
     setLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: "gemini-3-flash-preview",
         config: {
           responseMimeType: "application/json",
@@ -1892,9 +1884,9 @@ function PontoLibraryView() {
       
       const data = JSON.parse(response.text);
       setPontos(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('AI Error:', error);
-      alert('Erro ao buscar pontos com IA.');
+      alert(error.message || 'Erro ao buscar pontos com IA.');
     } finally {
       setLoading(false);
     }
@@ -1909,8 +1901,7 @@ function PontoLibraryView() {
 
     setPlaying(ponto.title);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      const response = await callGeminiWithRetry({
         model: "gemini-2.5-flash-preview-tts",
         contents: [{ parts: [{ text: `Cante ou recite este ponto de Umbanda com devoção: ${ponto.lyrics}` }] }],
         config: {
@@ -1937,8 +1928,9 @@ function PontoLibraryView() {
         audio.onended = () => setPlaying(null);
         audio.play();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('TTS Error:', error);
+      alert(error.message || 'Erro ao gerar áudio do ponto.');
       setPlaying(null);
     }
   };
