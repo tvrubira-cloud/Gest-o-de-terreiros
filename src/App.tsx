@@ -1,11 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
+import { initializeApp, deleteApp } from 'firebase/app';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updatePassword,
+  getAuth,
   User as FirebaseUser 
 } from 'firebase/auth';
+import firebaseConfig from '../firebase-applet-config.json';
 import { 
   doc, 
   getDoc, 
@@ -156,6 +162,9 @@ export default function App() {
   const [events, setEvents] = useState<TerreiroEvent[]>([]);
   const [showCpfModal, setShowCpfModal] = useState(false);
   const [cpfInput, setCpfInput] = useState('');
+  const [loginCpf, setLoginCpf] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -210,10 +219,41 @@ export default function App() {
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
+    setLoginError('');
     try {
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setLoginError('Este domínio não está autorizado para login no Firebase. Adicione "gestor-de-terreiros26.netlify.app" aos Domínios Autorizados no Console do Firebase.');
+      } else {
+        setLoginError('Erro ao entrar com Google. Tente novamente.');
+      }
+    }
+  };
+
+  const handleCpfLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (!loginCpf || !loginPassword) {
+      setLoginError('Por favor, preencha CPF e senha.');
+      return;
+    }
+
+    const cleanCpf = loginCpf.replace(/\D/g, '');
+    const email = `${cleanCpf}@terreiro.app`;
+
+    try {
+      await signInWithEmailAndPassword(auth, email, loginPassword);
+    } catch (error: any) {
+      console.error('Login error:', error);
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        setLoginError('CPF ou senha incorretos.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setLoginError('O login por CPF (E-mail/Senha) não está habilitado no Firebase Console. Por favor, habilite-o em Authentication > Sign-in method.');
+      } else {
+        setLoginError('Erro ao fazer login. Tente novamente.');
+      }
     }
   };
 
@@ -260,7 +300,7 @@ export default function App() {
           className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden"
         >
           <div className="p-8 text-center space-y-6">
-            <div className="w-32 h-32 mx-auto rounded-full overflow-hidden border-4 border-emerald-100 shadow-inner">
+            <div className="w-24 h-24 mx-auto rounded-full overflow-hidden border-4 border-emerald-100 shadow-inner">
               <img 
                 src="https://ais-pre-4pa6kzxwli2xaoq5f27lox-259265820664.us-west2.run.app/logo.png" 
                 alt="Logo" 
@@ -269,14 +309,38 @@ export default function App() {
               />
             </div>
             <div className="space-y-2">
-              <h1 className="text-3xl font-serif font-bold text-emerald-900">Gestão de Terreiro</h1>
-              <p className="text-emerald-600 font-medium">Conectando a espiritualidade com organização.</p>
+              <h1 className="text-2xl font-serif font-bold text-emerald-900">Gestão de Terreiro</h1>
+              <p className="text-emerald-600 text-sm font-medium">Acesse com seu CPF e senha</p>
             </div>
-            <Button onClick={handleLogin} className="w-full py-4 text-lg flex items-center justify-center gap-2">
+
+            <form onSubmit={handleCpfLogin} className="space-y-4 text-left">
+              <Input 
+                label="CPF" 
+                placeholder="000.000.000-00" 
+                value={loginCpf}
+                onChange={(e: any) => setLoginCpf(e.target.value)}
+              />
+              <Input 
+                label="Senha" 
+                type="password" 
+                placeholder="••••••••" 
+                value={loginPassword}
+                onChange={(e: any) => setLoginPassword(e.target.value)}
+              />
+              {loginError && <p className="text-xs text-red-500">{loginError}</p>}
+              <Button type="submit" className="w-full py-3">Entrar</Button>
+            </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-emerald-100"></span></div>
+              <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-emerald-400">Ou acesse com</span></div>
+            </div>
+
+            <Button variant="secondary" onClick={handleLogin} className="w-full py-3 flex items-center justify-center gap-2">
               <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-              Entrar com Google
+              Google
             </Button>
-            <p className="text-xs text-emerald-400">Ao entrar, você concorda com os termos de uso da casa.</p>
+            <p className="text-xs text-emerald-400">Administradores podem criar novos acessos.</p>
           </div>
         </motion.div>
       </div>
@@ -769,7 +833,37 @@ function ProfileView({ profile, onUpdate }: { profile: UserProfile | null, onUpd
   const [formData, setFormData] = useState<UserProfile>(profile!);
   const [aiFeedback, setAiFeedback] = useState<string>('');
   const [loadingFeedback, setLoadingFeedback] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isCpfUser = auth.currentUser?.email?.endsWith('@terreiro.app');
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      alert('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    setIsUpdatingPassword(true);
+    try {
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, newPassword);
+        alert('Senha atualizada com sucesso!');
+        setShowPasswordModal(false);
+        setNewPassword('');
+      }
+    } catch (error: any) {
+      console.error('Error updating password:', error);
+      if (error.code === 'auth/requires-recent-login') {
+        alert('Para sua segurança, você precisa sair e entrar novamente antes de alterar a senha.');
+      } else {
+        alert('Erro ao atualizar senha: ' + error.message);
+      }
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
 
   const handleGetFeedback = async () => {
     setLoadingFeedback(true);
@@ -818,9 +912,47 @@ function ProfileView({ profile, onUpdate }: { profile: UserProfile | null, onUpd
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h3 className="text-2xl font-bold text-emerald-900">Meu Perfil</h3>
-        <Button onClick={() => editing ? handleSave() : setEditing(true)} className="w-full sm:w-auto">
-          {editing ? 'Salvar Alterações' : 'Editar Perfil'}
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <Button onClick={() => editing ? handleSave() : setEditing(true)} className="flex-1 flex items-center justify-center gap-2">
+            <SettingsIcon size={18} />
+            {editing ? 'Salvar Alterações' : 'Editar Perfil'}
+          </Button>
+          {isCpfUser && (
+            <Button 
+              variant="ghost" 
+              onClick={() => setShowPasswordModal(true)}
+              className="flex-1 flex items-center justify-center gap-2"
+            >
+              <ShieldCheck size={18} />
+              Alterar Senha
+            </Button>
+          )}
+        </div>
+
+        {showPasswordModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl space-y-6"
+            >
+              <h4 className="text-xl font-bold text-emerald-900">Alterar Senha</h4>
+              <Input 
+                label="Nova Senha" 
+                type="password" 
+                placeholder="Mínimo 6 caracteres" 
+                value={newPassword}
+                onChange={(e: any) => setNewPassword(e.target.value)}
+              />
+              <div className="flex gap-3">
+                <Button variant="ghost" onClick={() => setShowPasswordModal(false)} className="flex-1">Cancelar</Button>
+                <Button onClick={handleUpdatePassword} disabled={isUpdatingPassword} className="flex-1">
+                  {isUpdatingPassword ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'Confirmar'}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -961,6 +1093,14 @@ function AdminMembersView() {
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [search, setSearch] = useState('');
   const [editingMember, setEditingMember] = useState<UserProfile | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newMemberData, setNewMemberData] = useState({
+    fullName: '',
+    cpf: '',
+    password: '',
+    role: 'member' as UserRole
+  });
+  const [isCreating, setIsCreating] = useState(false);
   const [aiInsight, setAiInsight] = useState<{ uid: string, text: string } | null>(null);
   const [loadingInsight, setLoadingInsight] = useState<string | null>(null);
 
@@ -972,6 +1112,53 @@ function AdminMembersView() {
     });
     return unsub;
   }, []);
+
+  const handleCreateMember = async () => {
+    if (!newMemberData.fullName || !newMemberData.cpf || !newMemberData.password) {
+      alert('Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+    setIsCreating(true);
+
+    const cleanCpf = newMemberData.cpf.replace(/\D/g, '');
+    const email = `${cleanCpf}@terreiro.app`;
+
+    try {
+      // Create user in secondary app to avoid logging out admin
+      const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
+      const secondaryAuth = getAuth(secondaryApp);
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, newMemberData.password);
+      const uid = userCredential.user.uid;
+
+      const newProfile: UserProfile = {
+        uid,
+        cpf: newMemberData.cpf,
+        role: newMemberData.role,
+        fullName: newMemberData.fullName,
+        contacts: {
+          email: '',
+          phone: '',
+          whatsapp: ''
+        }
+      };
+
+      await setDoc(doc(db, 'users', uid), newProfile);
+      await deleteApp(secondaryApp);
+      
+      setShowCreateModal(false);
+      setNewMemberData({ fullName: '', cpf: '', password: '', role: 'member' });
+      alert('Membro criado com sucesso!');
+    } catch (error: any) {
+      console.error('Error creating member:', error);
+      if (error.code === 'auth/operation-not-allowed') {
+        alert('Erro: O login por E-mail/Senha não está habilitado no Firebase Console. Por favor, habilite-o em Authentication > Sign-in method para permitir o cadastro de novos membros.');
+      } else {
+        alert('Erro ao criar membro: ' + error.message);
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   const handleGenerateInsight = async (member: UserProfile) => {
     setLoadingInsight(member.uid);
@@ -1008,22 +1195,95 @@ function AdminMembersView() {
     }
   };
 
+  const handleDeleteMember = async (member: UserProfile) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o membro ${member.fullName}? Esta ação não removerá o acesso dele do sistema, apenas o perfil.`)) return;
+    try {
+      await deleteDoc(doc(db, 'users', member.uid));
+      alert('Perfil excluído com sucesso!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `users/${member.uid}`);
+    }
+  };
+
   const filtered = members.filter(m => m.fullName.toLowerCase().includes(search.toLowerCase()) || m.cpf.includes(search));
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h3 className="text-2xl font-bold text-emerald-900">Gestão de Membros</h3>
-        <div className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={18} />
-          <input 
-            placeholder="Buscar por nome ou CPF..." 
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="flex items-center gap-3">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={18} />
+            <input 
+              placeholder="Buscar por nome ou CPF..." 
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <Button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2">
+            <Plus size={18} />
+            Novo Membro
+          </Button>
         </div>
       </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-6"
+          >
+            <div className="flex items-center justify-between border-b border-emerald-50 pb-4">
+              <h4 className="text-xl font-bold text-emerald-900">Cadastrar Novo Membro</h4>
+              <button onClick={() => setShowCreateModal(false)} className="text-emerald-400 hover:text-emerald-600">
+                <Plus size={24} className="rotate-45" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <Input 
+                label="Nome Completo" 
+                placeholder="Ex: João Silva" 
+                value={newMemberData.fullName}
+                onChange={(e: any) => setNewMemberData({...newMemberData, fullName: e.target.value})}
+              />
+              <Input 
+                label="CPF" 
+                placeholder="000.000.000-00" 
+                value={newMemberData.cpf}
+                onChange={(e: any) => setNewMemberData({...newMemberData, cpf: e.target.value})}
+              />
+              <Input 
+                label="Senha de Acesso" 
+                type="password"
+                placeholder="Mínimo 6 caracteres" 
+                value={newMemberData.password}
+                onChange={(e: any) => setNewMemberData({...newMemberData, password: e.target.value})}
+              />
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-emerald-900">Papel no Sistema</label>
+                <select 
+                  className="w-full px-4 py-2 rounded-lg border border-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={newMemberData.role}
+                  onChange={(e: any) => setNewMemberData({...newMemberData, role: e.target.value as UserRole})}
+                >
+                  <option value="member">Membro</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button variant="ghost" onClick={() => setShowCreateModal(false)} className="flex-1">Cancelar</Button>
+              <Button onClick={handleCreateMember} disabled={isCreating} className="flex-1">
+                {isCreating ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'Cadastrar'}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {editingMember && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1131,6 +1391,13 @@ function AdminMembersView() {
                       className="text-emerald-600 hover:text-emerald-800 font-bold text-sm"
                     >
                       Editar
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteMember(member)}
+                      className="text-red-500 hover:text-red-700"
+                      title="Excluir Perfil"
+                    >
+                      <X size={16} />
                     </button>
                   </div>
                 </td>

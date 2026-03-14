@@ -1,7 +1,7 @@
 import { GoogleGenAI, GenerateContentParameters, GenerateContentResponse } from "@google/genai";
 
-const MAX_RETRIES = 3;
-const INITIAL_BACKOFF = 1000; // 1 second
+const MAX_RETRIES = 5;
+const INITIAL_BACKOFF = 2000; // 2 seconds
 
 export async function callGeminiWithRetry(
   params: GenerateContentParameters,
