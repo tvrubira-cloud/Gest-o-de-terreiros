@@ -9,7 +9,10 @@ import {
   createUserWithEmailAndPassword,
   updatePassword,
   getAuth,
-  User as FirebaseUser 
+  User as FirebaseUser,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence
 } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
 import { 
@@ -168,6 +171,7 @@ export default function App() {
   const [cpfInput, setCpfInput] = useState('');
   const [loginCpf, setLoginCpf] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
@@ -297,6 +301,7 @@ export default function App() {
     const provider = new GoogleAuthProvider();
     setLoginError('');
     try {
+      await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
       await signInWithPopup(auth, provider);
     } catch (error: any) {
       console.error('Login error:', error);
@@ -322,6 +327,7 @@ export default function App() {
     const email = `${cleanCpf}@terreiro.app`;
 
     try {
+      await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
       await signInWithEmailAndPassword(auth, email, loginPassword);
     } catch (error: any) {
       console.error('Login error:', error);
@@ -405,6 +411,15 @@ export default function App() {
                 value={loginPassword}
                 onChange={(e: any) => setLoginPassword(e.target.value)}
               />
+              <label className="flex items-center gap-2 text-sm text-emerald-600">
+                <input 
+                  type="checkbox" 
+                  checked={rememberMe} 
+                  onChange={(e) => setRememberMe(e.target.checked)} 
+                  className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                Lembrar-me
+              </label>
               {loginError && <p className="text-xs text-red-500">{loginError}</p>}
               <Button type="submit" className="w-full py-3">Entrar</Button>
             </form>
