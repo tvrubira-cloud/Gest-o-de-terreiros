@@ -39,7 +39,9 @@ import {
   ShieldCheck,
   Sparkles,
   Send,
-  Loader2
+  Loader2,
+  Menu,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -149,6 +151,7 @@ export default function App() {
   const [settings, setSettings] = useState<TerreiroSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'dashboard' | 'agenda' | 'profile' | 'admin-members' | 'admin-events' | 'admin-settings' | 'ai-assistant' | 'pontos' | 'herb-guide'>('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [events, setEvents] = useState<TerreiroEvent[]>([]);
   const [showCpfModal, setShowCpfModal] = useState(false);
   const [cpfInput, setCpfInput] = useState('');
@@ -184,6 +187,8 @@ export default function App() {
           welcomeMessage: 'Bem-vindo à nossa casa espiritual.'
         });
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'settings/global');
     });
 
     // Listen to events
@@ -191,6 +196,8 @@ export default function App() {
     const unsubEvents = onSnapshot(q, (snapshot) => {
       const evs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TerreiroEvent));
       setEvents(evs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'events');
     });
 
     return () => {
@@ -299,10 +306,98 @@ export default function App() {
 
   const isAdmin = profile?.role === 'admin';
 
+  const handleNavClick = (newView: any) => {
+    setView(newView);
+    setMobileMenuOpen(false);
+  };
+
   return (
-    <div className="min-h-screen bg-[#f9f9f7] flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-emerald-100 hidden md:flex flex-col">
+    <div className="min-h-screen bg-[#f9f9f7] flex flex-col md:flex-row">
+      {/* Mobile Header */}
+      <header className="md:hidden bg-white border-b border-emerald-100 p-4 flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setMobileMenuOpen(true)}
+            className="p-2 -ml-2 text-emerald-900"
+          >
+            <Menu size={24} />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center overflow-hidden">
+              <img src={settings?.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+            </div>
+            <span className="font-bold text-emerald-900 truncate max-w-[150px]">{settings?.terreiroName}</span>
+          </div>
+        </div>
+        <div className="w-8 h-8 rounded-full bg-emerald-200 border-2 border-white shadow-sm overflow-hidden">
+          <img src={user.photoURL || ''} alt="User" />
+        </div>
+      </header>
+
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 md:hidden"
+            />
+            <motion.aside 
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed inset-y-0 left-0 w-72 bg-white z-50 md:hidden flex flex-col shadow-2xl"
+            >
+              <div className="p-6 border-b border-emerald-50 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center overflow-hidden">
+                    <img src={settings?.logoUrl} alt="Logo" className="w-full h-full object-cover" />
+                  </div>
+                  <span className="font-bold text-emerald-900">{settings?.terreiroName}</span>
+                </div>
+                <button onClick={() => setMobileMenuOpen(false)} className="text-emerald-400">
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                <NavItem active={view === 'dashboard'} icon={<Home size={20} />} label="Início" onClick={() => handleNavClick('dashboard')} />
+                <NavItem active={view === 'agenda'} icon={<Calendar size={20} />} label="Agenda" onClick={() => handleNavClick('agenda')} />
+                <NavItem active={view === 'pontos'} icon={<Music size={20} />} label="Pontos Cantados" onClick={() => handleNavClick('pontos')} />
+                <NavItem active={view === 'herb-guide'} icon={<Leaf size={20} />} label="Guia de Ervas" onClick={() => handleNavClick('herb-guide')} />
+                <NavItem active={view === 'ai-assistant'} icon={<Sparkles size={20} />} label="Assistente IA" onClick={() => handleNavClick('ai-assistant')} />
+                <NavItem active={view === 'profile'} icon={<UserIcon size={20} />} label="Meu Perfil" onClick={() => handleNavClick('profile')} />
+                
+                {isAdmin && (
+                  <div className="pt-6">
+                    <p className="px-4 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">Administração</p>
+                    <NavItem active={view === 'admin-members'} icon={<Users size={20} />} label="Membros" onClick={() => handleNavClick('admin-members')} />
+                    <NavItem active={view === 'admin-events'} icon={<Plus size={20} />} label="Gerenciar Agenda" onClick={() => handleNavClick('admin-events')} />
+                    <NavItem active={view === 'admin-settings'} icon={<SettingsIcon size={20} />} label="Configurações" onClick={() => handleNavClick('admin-settings')} />
+                  </div>
+                )}
+              </nav>
+
+              <div className="p-4 border-t border-emerald-50">
+                <button 
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                >
+                  <LogOut size={20} />
+                  <span className="font-medium">Sair</span>
+                </button>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop Sidebar */}
+      <aside className="w-64 bg-white border-r border-emerald-100 hidden md:flex flex-col sticky top-0 h-screen">
         <div className="p-6 border-b border-emerald-50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center overflow-hidden">
@@ -313,19 +408,19 @@ export default function App() {
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
-          <NavItem active={view === 'dashboard'} icon={<Home size={20} />} label="Início" onClick={() => setView('dashboard')} />
-          <NavItem active={view === 'agenda'} icon={<Calendar size={20} />} label="Agenda" onClick={() => setView('agenda')} />
-          <NavItem active={view === 'pontos'} icon={<Music size={20} />} label="Pontos Cantados" onClick={() => setView('pontos')} />
-          <NavItem active={view === 'herb-guide'} icon={<Leaf size={20} />} label="Guia de Ervas" onClick={() => setView('herb-guide')} />
-          <NavItem active={view === 'ai-assistant'} icon={<Sparkles size={20} />} label="Assistente IA" onClick={() => setView('ai-assistant')} />
-          <NavItem active={view === 'profile'} icon={<UserIcon size={20} />} label="Meu Perfil" onClick={() => setView('profile')} />
+          <NavItem active={view === 'dashboard'} icon={<Home size={20} />} label="Início" onClick={() => handleNavClick('dashboard')} />
+          <NavItem active={view === 'agenda'} icon={<Calendar size={20} />} label="Agenda" onClick={() => handleNavClick('agenda')} />
+          <NavItem active={view === 'pontos'} icon={<Music size={20} />} label="Pontos Cantados" onClick={() => handleNavClick('pontos')} />
+          <NavItem active={view === 'herb-guide'} icon={<Leaf size={20} />} label="Guia de Ervas" onClick={() => handleNavClick('herb-guide')} />
+          <NavItem active={view === 'ai-assistant'} icon={<Sparkles size={20} />} label="Assistente IA" onClick={() => handleNavClick('ai-assistant')} />
+          <NavItem active={view === 'profile'} icon={<UserIcon size={20} />} label="Meu Perfil" onClick={() => handleNavClick('profile')} />
           
           {isAdmin && (
             <div className="pt-6">
               <p className="px-4 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">Administração</p>
-              <NavItem active={view === 'admin-members'} icon={<Users size={20} />} label="Membros" onClick={() => setView('admin-members')} />
-              <NavItem active={view === 'admin-events'} icon={<Plus size={20} />} label="Gerenciar Agenda" onClick={() => setView('admin-events')} />
-              <NavItem active={view === 'admin-settings'} icon={<SettingsIcon size={20} />} label="Configurações" onClick={() => setView('admin-settings')} />
+              <NavItem active={view === 'admin-members'} icon={<Users size={20} />} label="Membros" onClick={() => handleNavClick('admin-members')} />
+              <NavItem active={view === 'admin-events'} icon={<Plus size={20} />} label="Gerenciar Agenda" onClick={() => handleNavClick('admin-events')} />
+              <NavItem active={view === 'admin-settings'} icon={<SettingsIcon size={20} />} label="Configurações" onClick={() => handleNavClick('admin-settings')} />
             </div>
           )}
         </nav>
@@ -342,19 +437,14 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Header */}
-        <header className="bg-white border-b border-emerald-100 p-4 flex items-center justify-between">
+      <main className="flex-1 flex flex-col min-h-0">
+        {/* Desktop Header */}
+        <header className="bg-white border-b border-emerald-100 p-4 hidden md:flex items-center justify-between sticky top-0 z-30">
+          <h2 className="text-xl font-bold text-emerald-900 capitalize">
+            {view.replace('admin-', 'Admin: ').replace('-', ' ')}
+          </h2>
           <div className="flex items-center gap-4">
-            <button className="md:hidden p-2 text-emerald-900">
-              <Home size={24} />
-            </button>
-            <h2 className="text-xl font-bold text-emerald-900 capitalize">
-              {view.replace('admin-', 'Admin: ').replace('-', ' ')}
-            </h2>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full text-emerald-700 text-sm font-medium">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full text-emerald-700 text-sm font-medium">
               <ShieldCheck size={16} />
               {isAdmin ? 'Administrador' : 'Membro'}
             </div>
@@ -365,13 +455,13 @@ export default function App() {
         </header>
 
         {/* View Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 p-4 md:p-8">
           <AnimatePresence mode="wait">
             <motion.div
               key={view}
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
               {view === 'dashboard' && <Dashboard profile={profile} settings={settings} events={events} />}
@@ -516,10 +606,10 @@ function Dashboard({ profile, settings, events }: { profile: UserProfile | null,
             <motion.div 
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="bg-white p-8 rounded-3xl border border-emerald-100 shadow-sm"
+              className="bg-white p-6 md:p-8 rounded-3xl border border-emerald-100 shadow-sm"
             >
-              <div className="flex items-center gap-3 mb-4 text-emerald-600">
-                <div className="p-2 bg-emerald-50 rounded-lg">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4 text-emerald-600">
+                <div className="p-2 bg-emerald-50 rounded-lg w-fit">
                   <Sparkles size={20} />
                 </div>
                 <h3 className="text-xl font-bold">Estudo da Semana: {doctrine.title}</h3>
@@ -537,16 +627,16 @@ function Dashboard({ profile, settings, events }: { profile: UserProfile | null,
             </div>
             <div className="grid gap-4">
               {nextEvents.length > 0 ? nextEvents.map(event => (
-                <div key={event.id} className="bg-white p-6 rounded-2xl border border-emerald-50 flex items-center gap-6 hover:shadow-md transition-all group">
+                <div key={event.id} className="bg-white p-4 md:p-6 rounded-2xl border border-emerald-50 flex items-center gap-4 md:gap-6 hover:shadow-md transition-all group">
                   {event.imageUrl ? (
-                    <img src={event.imageUrl} alt={event.title} className="w-16 h-16 rounded-2xl object-cover" />
+                    <img src={event.imageUrl} alt={event.title} className="w-12 h-12 md:w-16 md:h-16 rounded-2xl object-cover" />
                   ) : (
-                    <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex flex-col items-center justify-center text-emerald-700">
-                      <span className="text-xs font-bold uppercase">{format(new Date(event.date), 'MMM', { locale: ptBR })}</span>
-                      <span className="text-2xl font-bold leading-none">{format(new Date(event.date), 'dd')}</span>
+                    <div className="w-12 h-12 md:w-16 md:h-16 rounded-2xl bg-emerald-50 flex flex-col items-center justify-center text-emerald-700 shrink-0">
+                      <span className="text-[10px] md:text-xs font-bold uppercase">{format(new Date(event.date), 'MMM', { locale: ptBR })}</span>
+                      <span className="text-xl md:text-2xl font-bold leading-none">{format(new Date(event.date), 'dd')}</span>
                     </div>
                   )}
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className={cn(
                         "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
@@ -558,12 +648,12 @@ function Dashboard({ profile, settings, events }: { profile: UserProfile | null,
                       <span className="text-emerald-400 text-sm">•</span>
                       <span className="text-emerald-500 text-sm font-medium">{format(new Date(event.date), 'HH:mm')}</span>
                     </div>
-                    <h4 className="text-lg font-bold text-emerald-900 group-hover:text-emerald-700 transition-colors">{event.title}</h4>
+                    <h4 className="text-base md:text-lg font-bold text-emerald-900 group-hover:text-emerald-700 transition-colors truncate">{event.title}</h4>
                   </div>
-                  <ChevronRight className="text-emerald-200 group-hover:text-emerald-400 transition-all" />
+                  <ChevronRight className="text-emerald-200 group-hover:text-emerald-400 transition-all shrink-0" />
                 </div>
               )) : (
-                <div className="bg-white p-12 rounded-2xl border border-dashed border-emerald-200 text-center text-emerald-400">
+                <div className="bg-white p-8 rounded-2xl border border-dashed border-emerald-200 text-center text-emerald-400">
                   Nenhum evento agendado.
                 </div>
               )}
@@ -573,22 +663,24 @@ function Dashboard({ profile, settings, events }: { profile: UserProfile | null,
 
         <div className="space-y-6">
           {/* Weekly Forecast Card */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm space-y-4"
-          >
-            <div className="flex items-center justify-between">
-              <h4 className="font-bold text-emerald-900 flex items-center gap-2">
-                <Calendar className="text-emerald-500" size={18} />
-                Previsão Semanal
-              </h4>
-              <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">IA</span>
-            </div>
-            <p className="text-emerald-700 text-sm leading-relaxed italic">
-              {loadingAI ? "Consultando os guias..." : forecast || "Uma semana de muita luz e aprendizado te espera."}
-            </p>
-          </motion.div>
+          {forecast && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-emerald-900 flex items-center gap-2">
+                  <Calendar className="text-emerald-500" size={18} />
+                  Previsão Semanal
+                </h4>
+                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">IA</span>
+              </div>
+              <p className="text-emerald-700 text-sm leading-relaxed italic">
+                {loadingAI ? "Consultando os guias..." : forecast}
+              </p>
+            </motion.div>
+          )}
 
           <h3 className="text-xl font-bold text-emerald-900">Meu Status</h3>
           <div className="bg-white rounded-2xl p-6 border border-emerald-50 space-y-4">
@@ -632,12 +724,12 @@ function AgendaView({ events }: { events: TerreiroEvent[] }) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h3 className="text-2xl font-bold text-emerald-900">Agenda da Casa</h3>
         <div className="flex gap-2">
           <Input 
             placeholder="Buscar evento..." 
-            className="w-64" 
+            className="w-full sm:w-64" 
             value={search}
             onChange={(e: any) => setSearch(e.target.value)}
           />
@@ -645,24 +737,24 @@ function AgendaView({ events }: { events: TerreiroEvent[] }) {
       </div>
       <div className="bg-white rounded-3xl shadow-sm border border-emerald-100 overflow-hidden">
         {filtered.length > 0 ? filtered.map((event, idx) => (
-          <div key={event.id} className={cn("p-6 flex items-start gap-6 hover:bg-emerald-50/50 transition-all", idx !== filtered.length - 1 && "border-b border-emerald-50")}>
-            <div className="text-center min-w-[60px]">
+          <div key={event.id} className={cn("p-6 flex flex-col sm:flex-row items-start gap-4 sm:gap-6 hover:bg-emerald-50/50 transition-all", idx !== filtered.length - 1 && "border-b border-emerald-50")}>
+            <div className="text-center min-w-[60px] flex sm:flex-col items-center gap-2 sm:gap-0">
               <p className="text-xs font-bold text-emerald-400 uppercase">{format(new Date(event.date), 'MMM', { locale: ptBR })}</p>
-              <p className="text-3xl font-bold text-emerald-900">{format(new Date(event.date), 'dd')}</p>
+              <p className="text-2xl sm:text-3xl font-bold text-emerald-900">{format(new Date(event.date), 'dd')}</p>
             </div>
             <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold uppercase">{event.type}</span>
                 {format(new Date(event.date), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd') && (
                   <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-bold uppercase flex items-center gap-1">
                     <Bell size={10} /> HOJE
                   </span>
                 )}
-                <span className="text-emerald-400">•</span>
+                <span className="text-emerald-400 hidden sm:inline">•</span>
                 <span className="text-emerald-600 text-sm">{format(new Date(event.date), "EEEE, HH:mm", { locale: ptBR })}</span>
               </div>
               <h4 className="text-xl font-bold text-emerald-900">{event.title}</h4>
-              <p className="text-emerald-600 leading-relaxed">{event.description}</p>
+              <p className="text-emerald-600 leading-relaxed text-sm sm:text-base">{event.description}</p>
             </div>
           </div>
         )) : (
@@ -725,9 +817,9 @@ function ProfileView({ profile, onUpdate }: { profile: UserProfile | null, onUpd
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h3 className="text-2xl font-bold text-emerald-900">Meu Perfil</h3>
-        <Button onClick={() => editing ? handleSave() : setEditing(true)}>
+        <Button onClick={() => editing ? handleSave() : setEditing(true)} className="w-full sm:w-auto">
           {editing ? 'Salvar Alterações' : 'Editar Perfil'}
         </Button>
       </div>
@@ -876,6 +968,8 @@ function AdminMembersView() {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
       setMembers(snapshot.docs.map(doc => doc.data() as UserProfile));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
     return unsub;
   }, []);
@@ -920,18 +1014,16 @@ function AdminMembersView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h3 className="text-2xl font-bold text-emerald-900">Gestão de Membros</h3>
-        <div className="flex gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={18} />
-            <input 
-              placeholder="Buscar por nome ou CPF..." 
-              className="pl-10 pr-4 py-2 rounded-xl border border-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-64"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={18} />
+          <input 
+            placeholder="Buscar por nome ou CPF..." 
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
       </div>
 
@@ -940,10 +1032,10 @@ function AdminMembersView() {
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-3xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-8"
+            className="bg-white rounded-3xl p-6 md:p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-8"
           >
             <div className="flex items-center justify-between border-b border-emerald-50 pb-4">
-              <h4 className="text-2xl font-bold text-emerald-900">Editar Membro: {editingMember.fullName}</h4>
+              <h4 className="text-xl md:text-2xl font-bold text-emerald-900">Editar Membro</h4>
               <button onClick={() => setEditingMember(null)} className="text-emerald-400 hover:text-emerald-600">
                 <Plus size={24} className="rotate-45" />
               </button>
@@ -978,15 +1070,16 @@ function AdminMembersView() {
               </Section>
             </div>
 
-            <div className="flex justify-end gap-4 pt-4 border-t border-emerald-50">
-              <Button variant="ghost" onClick={() => setEditingMember(null)}>Cancelar</Button>
-              <Button onClick={handleSaveMember}>Salvar Alterações</Button>
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-emerald-50">
+              <Button variant="ghost" onClick={() => setEditingMember(null)} className="w-full sm:w-auto">Cancelar</Button>
+              <Button onClick={handleSaveMember} className="w-full sm:w-auto">Salvar Alterações</Button>
             </div>
           </motion.div>
         </div>
       )}
 
-      <div className="bg-white rounded-3xl border border-emerald-100 overflow-hidden">
+      {/* Desktop Table */}
+      <div className="hidden md:block bg-white rounded-3xl border border-emerald-100 overflow-hidden shadow-sm">
         <table className="w-full text-left">
           <thead className="bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider">
             <tr>
@@ -1047,6 +1140,61 @@ function AdminMembersView() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Cards */}
+      <div className="grid grid-cols-1 gap-4 md:hidden">
+        {filtered.map(member => (
+          <div key={member.uid} className="bg-white p-6 rounded-3xl border border-emerald-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold overflow-hidden">
+                  {member.photoUrl ? (
+                    <img src={member.photoUrl} alt={member.fullName} className="w-full h-full object-cover" />
+                  ) : (
+                    member.fullName[0]
+                  )}
+                </div>
+                <div>
+                  <p className="font-bold text-emerald-900">{member.fullName}</p>
+                  <p className="text-xs text-emerald-500">{member.spiritualName || 'Sem nome de santo'}</p>
+                </div>
+              </div>
+              <span className={cn(
+                "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
+                member.role === 'admin' ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700"
+              )}>
+                {member.role}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-emerald-50 text-sm">
+              <div>
+                <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">CPF</p>
+                <p className="text-emerald-900 font-mono">{member.cpf}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Mediunidade</p>
+                <p className="text-emerald-900">{member.spiritualData?.mediumType || '-'}</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-4 pt-4">
+              <button 
+                onClick={() => handleGenerateInsight(member)}
+                disabled={loadingInsight === member.uid}
+                className="flex items-center gap-2 text-emerald-600 font-bold text-sm disabled:opacity-50"
+              >
+                {loadingInsight === member.uid ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                Insight IA
+              </button>
+              <button 
+                onClick={() => setEditingMember(member)}
+                className="text-emerald-900 font-bold text-sm"
+              >
+                Editar
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {aiInsight && (
@@ -1200,13 +1348,15 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h3 className="text-2xl font-bold text-emerald-900">Gerenciar Agenda</h3>
-        <Button onClick={() => setShowForm(true)} className="flex items-center gap-2"><Plus size={18} /> Novo Evento</Button>
+        <Button onClick={() => setShowForm(true)} className="flex items-center justify-center gap-2 w-full sm:w-auto">
+          <Plus size={18} /> Novo Evento
+        </Button>
       </div>
 
       {showForm && (
-        <div className="bg-white p-8 rounded-3xl border border-emerald-100 shadow-xl space-y-6">
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-emerald-100 shadow-xl space-y-6">
           <h4 className="text-xl font-bold text-emerald-900">Novo Evento</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Input label="Título" value={formData.title} onChange={(e: any) => setFormData({...formData, title: e.target.value})} />
@@ -1275,14 +1425,15 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
               </div>
             </div>
           </div>
-          <div className="flex justify-end gap-4">
-            <Button variant="ghost" onClick={() => setShowForm(false)}>Cancelar</Button>
-            <Button onClick={handleCreate}>Criar Evento</Button>
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <Button variant="ghost" onClick={() => setShowForm(false)} className="w-full sm:w-auto">Cancelar</Button>
+            <Button onClick={handleCreate} className="w-full sm:w-auto">Criar Evento</Button>
           </div>
         </div>
       )}
 
-      <div className="bg-white rounded-3xl border border-emerald-100 overflow-hidden">
+      {/* Desktop Table */}
+      <div className="hidden md:block bg-white rounded-3xl border border-emerald-100 overflow-hidden shadow-sm">
         <table className="w-full text-left">
           <thead className="bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider">
             <tr>
@@ -1324,6 +1475,35 @@ function AdminEventsView({ events }: { events: TerreiroEvent[] }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Cards */}
+      <div className="grid grid-cols-1 gap-4 md:hidden">
+        {events.map(event => (
+          <div key={event.id} className="bg-white p-6 rounded-3xl border border-emerald-100 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold uppercase">{event.type}</span>
+              <p className="text-xs text-emerald-500 font-medium">{format(new Date(event.date), 'dd/MM/yyyy HH:mm')}</p>
+            </div>
+            <h4 className="text-lg font-bold text-emerald-900">{event.title}</h4>
+            <div className="flex items-center justify-end gap-4 pt-4 border-t border-emerald-50">
+              <button 
+                onClick={() => handleGenerateScript(event)}
+                disabled={isGeneratingScript === event.id}
+                className="text-emerald-600 hover:text-emerald-800 font-bold text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                {isGeneratingScript === event.id ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={16} />}
+                Roteiro IA
+              </button>
+              <button 
+                onClick={() => handleDeleteEvent(event.id)}
+                className="text-red-500 font-bold text-sm"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {scriptModal && (
@@ -1427,24 +1607,24 @@ function AIAssistantView({ profile, settings }: { profile: UserProfile | null, s
 
   return (
     <div className="max-w-4xl mx-auto h-[calc(100vh-12rem)] flex flex-col bg-white rounded-3xl border border-emerald-100 shadow-sm overflow-hidden">
-      <div className="p-6 bg-emerald-900 text-white flex items-center gap-3">
+      <div className="p-4 md:p-6 bg-emerald-900 text-white flex items-center gap-3">
         <div className="p-2 bg-emerald-800 rounded-xl">
           <Sparkles size={24} />
         </div>
         <div>
-          <h3 className="font-bold text-lg">Assistente Espiritual</h3>
-          <p className="text-xs text-emerald-300">Inteligência Artificial a serviço do Axé</p>
+          <h3 className="font-bold text-base md:text-lg">Assistente Espiritual</h3>
+          <p className="text-[10px] md:text-xs text-emerald-300">Inteligência Artificial a serviço do Axé</p>
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4 bg-emerald-50/30">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-emerald-50/30">
         {messages.map((m, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             key={i} 
             className={cn(
-              "max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed",
+              "max-w-[90%] md:max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed",
               m.role === 'user' 
                 ? "ml-auto bg-emerald-600 text-white rounded-tr-none" 
                 : "mr-auto bg-white text-emerald-900 border border-emerald-100 rounded-tl-none shadow-sm"
@@ -1464,7 +1644,7 @@ function AIAssistantView({ profile, settings }: { profile: UserProfile | null, s
       <div className="p-4 border-t border-emerald-100 bg-white">
         <div className="flex gap-2">
           <input 
-            placeholder="Pergunte sobre a casa, seus orixás ou a doutrina..." 
+            placeholder="Pergunte algo..." 
             className="flex-1 px-4 py-3 rounded-xl border border-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -1517,7 +1697,7 @@ function AdminSettingsView({ settings, onUpdate }: { settings: TerreiroSettings 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <h3 className="text-2xl font-bold text-emerald-900">Configurações do Terreiro</h3>
-      <div className="bg-white p-8 rounded-3xl border border-emerald-100 shadow-sm space-y-6">
+      <div className="bg-white p-6 md:p-8 rounded-3xl border border-emerald-100 shadow-sm space-y-6">
         <Input label="Nome do Terreiro" value={formData.terreiroName} onChange={(e: any) => setFormData({...formData, terreiroName: e.target.value})} />
         <Input label="URL da Logo" value={formData.logoUrl} onChange={(e: any) => setFormData({...formData, logoUrl: e.target.value})} />
         <div className="space-y-1">
@@ -1531,14 +1711,14 @@ function AdminSettingsView({ settings, onUpdate }: { settings: TerreiroSettings 
         <div className="pt-4 border-t border-emerald-50">
           <h5 className="font-bold text-emerald-900 mb-4">Importar Banco de Dados (Opcional)</h5>
           <p className="text-sm text-emerald-600 mb-4">Adicione uma URL de API ou JSON para facilitar o cadastro de membros existentes.</p>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-3">
             <Input 
               placeholder="https://api.exemplo.com/membros" 
               className="flex-1"
               value={importUrl}
               onChange={(e: any) => setImportUrl(e.target.value)}
             />
-            <Button variant="secondary" onClick={handleImport}>Importar</Button>
+            <Button variant="secondary" onClick={handleImport} className="w-full sm:w-auto">Importar</Button>
           </div>
         </div>
         <Button onClick={handleSave} className="w-full">Salvar Configurações</Button>
@@ -1571,7 +1751,7 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
             required: ["herbs", "instructions", "purpose"]
           }
         },
-        contents: `Sugira um banho de ervas ou defumação de Umbanda para a seguinte situação: "${query}". 
+        contents: `Sugira um banho de ervas ou defumação de Umbanda para a seguinte situation: "${query}". 
         Considere que o membro tem como Orixá de cabeça ${profile?.spiritualData?.orixaHead || 'não informado'}.
         Retorne uma lista de ervas, instruções de preparo e o propósito espiritual.`,
       });
@@ -1586,22 +1766,22 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      <div className="bg-emerald-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
-        <div className="relative z-10 space-y-4">
+      <div className="bg-emerald-900 rounded-3xl p-6 md:p-8 text-white relative overflow-hidden shadow-2xl">
+        <div className="relative z-10 space-y-6">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md">
               <Leaf size={32} className="text-emerald-300" />
             </div>
             <div>
-              <h3 className="text-2xl font-serif font-bold">Guia de Ervas & Banhos IA</h3>
-              <p className="text-emerald-100 opacity-80">Conhecimento ancestral potencializado pela tecnologia.</p>
+              <h3 className="text-xl md:text-2xl font-serif font-bold">Guia de Ervas & Banhos IA</h3>
+              <p className="text-emerald-100 opacity-80 text-sm md:text-base">Conhecimento ancestral potencializado pela tecnologia.</p>
             </div>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-3">
             <input 
               type="text" 
-              placeholder="Como você está se sentindo ou qual seu objetivo? (Ex: Limpeza, Proteção, Descarrego...)"
+              placeholder="Como você está se sentindo? (Ex: Limpeza, Proteção...)"
               className="flex-1 px-6 py-3 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 backdrop-blur-md"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -1610,7 +1790,7 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
             <button 
               onClick={handleConsult}
               disabled={loading}
-              className="px-6 py-3 bg-white text-emerald-900 rounded-2xl font-bold hover:bg-emerald-50 transition-all disabled:opacity-50 flex items-center gap-2"
+              className="px-6 py-3 bg-white text-emerald-900 rounded-2xl font-bold hover:bg-emerald-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
               Consultar
@@ -1627,7 +1807,7 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
             animate={{ opacity: 1, y: 0 }}
             className="grid grid-cols-1 md:grid-cols-3 gap-6"
           >
-            <div className="md:col-span-1 bg-white p-8 rounded-3xl border border-emerald-100 shadow-sm space-y-6">
+            <div className="md:col-span-1 bg-white p-6 md:p-8 rounded-3xl border border-emerald-100 shadow-sm space-y-6">
               <h4 className="font-bold text-emerald-900 flex items-center gap-2">
                 <Leaf className="text-emerald-500" size={20} />
                 Ervas Sugeridas
@@ -1646,7 +1826,7 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
               </div>
             </div>
 
-            <div className="md:col-span-2 bg-white p-8 rounded-3xl border border-emerald-100 shadow-sm space-y-6">
+            <div className="md:col-span-2 bg-white p-6 md:p-8 rounded-3xl border border-emerald-100 shadow-sm space-y-6">
               <h4 className="font-bold text-emerald-900 flex items-center gap-2">
                 <Sparkles className="text-emerald-500" size={20} />
                 Instruções de Preparo
@@ -1669,7 +1849,7 @@ function HerbGuideView({ profile }: { profile: UserProfile | null }) {
           <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto text-emerald-200">
             <Leaf size={40} />
           </div>
-          <p className="text-emerald-400 font-medium">Descreva sua necessidade acima para receber orientações sobre ervas e banhos.</p>
+          <p className="text-emerald-400 font-medium px-6">Descreva sua necessidade acima para receber orientações sobre ervas e banhos.</p>
         </div>
       )}
     </div>
@@ -1765,19 +1945,19 @@ function PontoLibraryView() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      <div className="bg-emerald-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
-        <div className="relative z-10 space-y-4">
+      <div className="bg-emerald-900 rounded-3xl p-6 md:p-8 text-white relative overflow-hidden shadow-2xl">
+        <div className="relative z-10 space-y-6">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md">
               <Music size={32} className="text-emerald-300" />
             </div>
             <div>
-              <h3 className="text-2xl font-serif font-bold">Biblioteca de Pontos IA</h3>
-              <p className="text-emerald-100 opacity-80">Letras, fundamentos e áudio sugerido por IA.</p>
+              <h3 className="text-xl md:text-2xl font-serif font-bold">Biblioteca de Pontos IA</h3>
+              <p className="text-emerald-100 opacity-80 text-sm md:text-base">Letras, fundamentos e áudio sugerido por IA.</p>
             </div>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-3">
             <input 
               type="text" 
               placeholder="Ex: Pontos de Caboclo, Pontos de Iemanjá..."
@@ -1789,7 +1969,7 @@ function PontoLibraryView() {
             <button 
               onClick={handleSearch}
               disabled={loading}
-              className="px-6 py-3 bg-white text-emerald-900 rounded-2xl font-bold hover:bg-emerald-50 transition-all disabled:opacity-50 flex items-center gap-2"
+              className="px-6 py-3 bg-white text-emerald-900 rounded-2xl font-bold hover:bg-emerald-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : <Search size={20} />}
               Buscar
@@ -1806,7 +1986,7 @@ function PontoLibraryView() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               key={i} 
-              className="bg-white p-8 rounded-3xl border border-emerald-100 shadow-sm hover:shadow-md transition-all space-y-6 flex flex-col"
+              className="bg-white p-6 md:p-8 rounded-3xl border border-emerald-100 shadow-sm hover:shadow-md transition-all space-y-6 flex flex-col"
             >
               <div className="flex items-center justify-between">
                 <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold uppercase tracking-wider">
@@ -1815,15 +1995,15 @@ function PontoLibraryView() {
                 <button 
                   onClick={() => playPonto(ponto)}
                   className={cn(
-                    "p-2 rounded-full transition-all",
-                    playing === ponto.title ? "bg-emerald-500 text-white" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                    "p-3 rounded-full transition-all shadow-md",
+                    playing === ponto.title ? "bg-red-500 text-white shadow-red-100" : "bg-emerald-600 text-white shadow-emerald-100 hover:bg-emerald-700"
                   )}
                 >
-                  {playing === ponto.title ? <Pause size={18} /> : <Volume2 size={18} />}
+                  {playing === ponto.title ? <Pause size={20} /> : <Play size={20} />}
                 </button>
               </div>
               
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <h4 className="text-xl font-bold text-emerald-900">{ponto.title}</h4>
                 <div className="text-emerald-700 leading-relaxed whitespace-pre-line font-serif italic text-lg border-l-4 border-emerald-100 pl-4">
                   {ponto.lyrics}
@@ -1848,7 +2028,7 @@ function PontoLibraryView() {
             <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto text-emerald-200">
               <Music size={40} />
             </div>
-            <p className="text-emerald-400 font-medium">Use a busca acima para encontrar pontos cantados.</p>
+            <p className="text-emerald-400 font-medium px-6">Use a busca acima para encontrar pontos cantados.</p>
           </div>
         )}
       </div>
