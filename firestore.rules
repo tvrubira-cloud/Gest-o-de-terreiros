@@ -90,7 +90,7 @@ service cloud.firestore {
     }
 
     match /events/{eventId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create, update, delete: if isAdmin() && isValidEvent(request.resource.data);
     }
 
