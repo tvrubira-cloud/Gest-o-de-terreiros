@@ -20,7 +20,10 @@ import {
   onSnapshot, 
   collection, 
   query, 
-  orderBy 
+  orderBy,
+  where,
+  getDocs,
+  updateDoc 
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { GoogleGenAI, Type, Modality } from "@google/genai";
@@ -79,6 +82,7 @@ interface UserProfile {
   spiritualName?: string;
   birthDate?: string;
   rg?: string;
+  authLinked?: boolean;
   address?: {
     street: string;
     number: string;
@@ -217,6 +221,78 @@ export default function App() {
     };
   }, []);
 
+  const [showFirstAccess, setShowFirstAccess] = useState(false);
+  const [firstAccessData, setFirstAccessData] = useState({ cpf: '', password: '', confirmPassword: '' });
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  const handleFirstAccess = async () => {
+    if (!firstAccessData.cpf || !firstAccessData.password) {
+      setLoginError('Preencha CPF e senha.');
+      return;
+    }
+    if (firstAccessData.password !== firstAccessData.confirmPassword) {
+      setLoginError('As senhas não coincidem.');
+      return;
+    }
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(firstAccessData.password)) {
+      setLoginError('A senha deve ter no mínimo 8 caracteres, incluindo letras maiúsculas, minúsculas e números.');
+      return;
+    }
+
+    setIsRegistering(true);
+    setLoginError('');
+
+    const cleanCpf = firstAccessData.cpf.replace(/\D/g, '');
+    const email = `${cleanCpf}@terreiro.app`;
+
+    try {
+      // 1. Check if member exists in Firestore by CPF
+      const q = query(collection(db, 'users'), where('cpf', '==', firstAccessData.cpf));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        setLoginError('CPF não encontrado no cadastro da casa. Peça ao administrador para cadastrar seu CPF primeiro.');
+        setIsRegistering(false);
+        return;
+      }
+
+      const memberDoc = querySnapshot.docs[0];
+      const memberData = memberDoc.data();
+
+      if (memberData.authLinked) {
+        setLoginError('Este CPF já possui acesso cadastrado. Use a tela de login normal.');
+        setIsRegistering(false);
+        return;
+      }
+
+      // 2. Create Auth User
+      const userCredential = await createUserWithEmailAndPassword(auth, email, firstAccessData.password);
+      const uid = userCredential.user.uid;
+
+      // 3. Update Firestore doc with new UID and link flag
+      await updateDoc(doc(db, 'users', memberDoc.id), {
+        uid: uid,
+        authLinked: true,
+        updatedAt: new Date().toISOString()
+      });
+
+      alert('Acesso criado com sucesso! Você já está logado.');
+      setShowFirstAccess(false);
+    } catch (error: any) {
+      console.error('First access error:', error);
+      if (error.code === 'auth/email-already-in-use') {
+        setLoginError('Este CPF já possui acesso cadastrado.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setLoginError('O provedor "E-mail/Senha" está desativado no Firebase. Ative-o em Authentication > Sign-in method no Console do Firebase.');
+      } else {
+        setLoginError('Erro ao criar acesso: ' + error.message);
+      }
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
     setLoginError('');
@@ -225,7 +301,9 @@ export default function App() {
     } catch (error: any) {
       console.error('Login error:', error);
       if (error.code === 'auth/unauthorized-domain') {
-        setLoginError('Este domínio não está autorizado para login no Firebase. Adicione "gestor-de-terreiros26.netlify.app" aos Domínios Autorizados no Console do Firebase.');
+        setLoginError('Este domínio não está autorizado para login no Firebase. Adicione o domínio atual aos Domínios Autorizados no Console do Firebase.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setLoginError('O provedor "Google" está desativado no Firebase. Ative-o em Authentication > Sign-in method no Console do Firebase.');
       } else {
         setLoginError('Erro ao entrar com Google. Tente novamente.');
       }
@@ -250,7 +328,7 @@ export default function App() {
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
         setLoginError('CPF ou senha incorretos.');
       } else if (error.code === 'auth/operation-not-allowed') {
-        setLoginError('O login por CPF (E-mail/Senha) não está habilitado no Firebase Console. Por favor, habilite-o em Authentication > Sign-in method.');
+        setLoginError('O provedor "E-mail/Senha" está desativado no Firebase. Ative-o em Authentication > Sign-in method no Console do Firebase.');
       } else {
         setLoginError('Erro ao fazer login. Tente novamente.');
       }
@@ -333,13 +411,72 @@ export default function App() {
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-emerald-100"></span></div>
-              <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-emerald-400">Ou acesse com</span></div>
+              <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-emerald-400">Acesso</span></div>
             </div>
 
-            <Button variant="secondary" onClick={handleLogin} className="w-full py-3 flex items-center justify-center gap-2">
-              <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-              Google
-            </Button>
+            <div className="flex flex-col gap-3">
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowFirstAccess(true)}
+                className="text-emerald-600 font-bold py-3"
+              >
+                Primeiro Acesso? Cadastre sua senha
+              </Button>
+              <Button variant="secondary" onClick={handleLogin} className="w-full py-3 flex items-center justify-center gap-2">
+                <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+                Entrar com Google
+              </Button>
+            </div>
+
+            {showFirstAccess && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6"
+                >
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xl font-bold text-emerald-900">Primeiro Acesso</h4>
+                    <button onClick={() => setShowFirstAccess(false)} className="text-emerald-400 hover:text-emerald-600">
+                      <X size={24} />
+                    </button>
+                  </div>
+                  <p className="text-sm text-emerald-600 text-left">Informe seu CPF cadastrado na casa para criar sua senha de acesso.</p>
+                  
+                  <div className="space-y-4 text-left">
+                    <Input 
+                      label="CPF" 
+                      placeholder="000.000.000-00" 
+                      value={firstAccessData.cpf}
+                      onChange={(e: any) => setFirstAccessData({...firstAccessData, cpf: e.target.value})}
+                    />
+                    <Input 
+                      label="Nova Senha" 
+                      type="password" 
+                      placeholder="Mínimo 8 caracteres, letras e números" 
+                      value={firstAccessData.password}
+                      onChange={(e: any) => setFirstAccessData({...firstAccessData, password: e.target.value})}
+                    />
+                    <Input 
+                      label="Confirmar Senha" 
+                      type="password" 
+                      placeholder="Repita a senha" 
+                      value={firstAccessData.confirmPassword}
+                      onChange={(e: any) => setFirstAccessData({...firstAccessData, confirmPassword: e.target.value})}
+                    />
+                  </div>
+
+                  {loginError && <p className="text-xs text-red-500 bg-red-50 p-3 rounded-lg">{loginError}</p>}
+
+                  <div className="flex gap-3">
+                    <Button variant="ghost" onClick={() => setShowFirstAccess(false)} className="flex-1">Cancelar</Button>
+                    <Button onClick={handleFirstAccess} disabled={isRegistering} className="flex-1">
+                      {isRegistering ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'Criar Acesso'}
+                    </Button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
             <p className="text-xs text-emerald-400">Administradores podem criar novos acessos.</p>
           </div>
         </motion.div>
@@ -370,6 +507,26 @@ export default function App() {
   }
 
   const isAdmin = profile?.role === 'admin';
+
+  const handleResetAccess = async (member: UserProfile) => {
+    if (!window.confirm(`Deseja resetar o acesso de ${member.fullName}? Ele precisará cadastrar uma nova senha no Primeiro Acesso.`)) return;
+    
+    try {
+      // Find the document ID (it might be the UID or a random ID)
+      const q = query(collection(db, 'users'), where('uid', '==', member.uid));
+      const snap = await getDocs(q);
+      if (snap.empty) return;
+
+      await updateDoc(doc(db, 'users', snap.docs[0].id), {
+        authLinked: false,
+        updatedAt: new Date().toISOString()
+      });
+
+      alert('Acesso resetado! O membro já pode usar a opção "Primeiro Acesso" para criar uma nova senha.');
+    } catch (error: any) {
+      alert('Erro ao resetar acesso: ' + error.message);
+    }
+  };
 
   const handleNavClick = (newView: any) => {
     setView(newView);
@@ -535,7 +692,7 @@ export default function App() {
               {view === 'herb-guide' && <HerbGuideView profile={profile} />}
               {view === 'ai-assistant' && <AIAssistantView profile={profile} settings={settings} />}
               {view === 'profile' && <ProfileView profile={profile} onUpdate={setProfile} />}
-              {view === 'admin-members' && <AdminMembersView />}
+              {view === 'admin-members' && <AdminMembersView onResetAccess={handleResetAccess} />}
               {view === 'admin-events' && <AdminEventsView events={events} />}
               {view === 'admin-settings' && <AdminSettingsView settings={settings} onUpdate={setSettings} />}
             </motion.div>
@@ -912,22 +1069,22 @@ function ProfileView({ profile, onUpdate }: { profile: UserProfile | null, onUpd
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h3 className="text-2xl font-bold text-emerald-900">Meu Perfil</h3>
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <Button onClick={() => editing ? handleSave() : setEditing(true)} className="flex-1 flex items-center justify-center gap-2">
-            <SettingsIcon size={18} />
-            {editing ? 'Salvar Alterações' : 'Editar Perfil'}
-          </Button>
-          {isCpfUser && (
-            <Button 
-              variant="ghost" 
-              onClick={() => setShowPasswordModal(true)}
-              className="flex-1 flex items-center justify-center gap-2"
-            >
-              <ShieldCheck size={18} />
-              Alterar Senha
+          <div className="flex flex-col gap-3 w-full sm:w-auto">
+            <Button onClick={() => editing ? handleSave() : setEditing(true)} className="flex items-center justify-center gap-2">
+              <SettingsIcon size={18} />
+              {editing ? 'Salvar Alterações' : 'Editar Perfil'}
             </Button>
-          )}
-        </div>
+            {isCpfUser && (
+              <Button 
+                variant="ghost" 
+                onClick={() => setShowPasswordModal(true)}
+                className="flex items-center justify-center gap-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100"
+              >
+                <ShieldCheck size={18} />
+                Alterar Minha Senha
+              </Button>
+            )}
+          </div>
 
         {showPasswordModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1089,7 +1246,7 @@ function Section({ title, children }: any) {
 
 // --- Admin Views ---
 
-function AdminMembersView() {
+function AdminMembersView({ onResetAccess }: { onResetAccess: (m: UserProfile) => void }) {
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [search, setSearch] = useState('');
   const [editingMember, setEditingMember] = useState<UserProfile | null>(null);
@@ -1114,8 +1271,8 @@ function AdminMembersView() {
   }, []);
 
   const handleCreateMember = async () => {
-    if (!newMemberData.fullName || !newMemberData.cpf || !newMemberData.password) {
-      alert('Por favor, preencha todos os campos obrigatórios.');
+    if (!newMemberData.fullName || !newMemberData.cpf) {
+      alert('Por favor, preencha Nome e CPF.');
       return;
     }
     setIsCreating(true);
@@ -1124,17 +1281,25 @@ function AdminMembersView() {
     const email = `${cleanCpf}@terreiro.app`;
 
     try {
-      // Create user in secondary app to avoid logging out admin
-      const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
-      const secondaryAuth = getAuth(secondaryApp);
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, newMemberData.password);
-      const uid = userCredential.user.uid;
+      let uid = `pending_${Date.now()}`;
+      let authLinked = false;
+
+      // If admin provided a password, create Auth user now
+      if (newMemberData.password) {
+        const secondaryApp = initializeApp(firebaseConfig, 'Secondary');
+        const secondaryAuth = getAuth(secondaryApp);
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, newMemberData.password);
+        uid = userCredential.user.uid;
+        authLinked = true;
+        await deleteApp(secondaryApp);
+      }
 
       const newProfile: UserProfile = {
         uid,
         cpf: newMemberData.cpf,
         role: newMemberData.role,
         fullName: newMemberData.fullName,
+        authLinked,
         contacts: {
           email: '',
           phone: '',
@@ -1143,11 +1308,10 @@ function AdminMembersView() {
       };
 
       await setDoc(doc(db, 'users', uid), newProfile);
-      await deleteApp(secondaryApp);
       
       setShowCreateModal(false);
       setNewMemberData({ fullName: '', cpf: '', password: '', role: 'member' });
-      alert('Membro criado com sucesso!');
+      alert(authLinked ? 'Membro criado com acesso ativo!' : 'Membro cadastrado! Ele poderá criar a senha no Primeiro Acesso.');
     } catch (error: any) {
       console.error('Error creating member:', error);
       if (error.code === 'auth/operation-not-allowed') {
@@ -1385,6 +1549,13 @@ function AdminMembersView() {
                       title="Gerar Insight IA"
                     >
                       {loadingInsight === member.uid ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    </button>
+                    <button 
+                      onClick={() => onResetAccess(member)}
+                      className="text-amber-500 hover:text-amber-700"
+                      title="Resetar Acesso (Nova Senha)"
+                    >
+                      <ShieldCheck size={16} />
                     </button>
                     <button 
                       onClick={() => setEditingMember(member)}
@@ -1926,6 +2097,8 @@ function AIAssistantView({ profile, settings }: { profile: UserProfile | null, s
 function AdminSettingsView({ settings, onUpdate }: { settings: TerreiroSettings | null, onUpdate: (s: TerreiroSettings) => void }) {
   const [formData, setFormData] = useState<TerreiroSettings>(settings!);
   const [importUrl, setImportUrl] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
   const handleSave = async () => {
     try {
@@ -1934,6 +2107,31 @@ function AdminSettingsView({ settings, onUpdate }: { settings: TerreiroSettings 
       alert('Configurações salvas!');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'settings/global');
+    }
+  };
+
+  const handleUpdateAdminPassword = async () => {
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(newAdminPassword)) {
+      alert('A senha deve ter no mínimo 8 caracteres, incluindo letras maiúsculas, minúsculas e números.');
+      return;
+    }
+    setIsUpdatingPassword(true);
+    try {
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, newAdminPassword);
+        alert('Senha do administrador atualizada com sucesso!');
+        setNewAdminPassword('');
+      }
+    } catch (error: any) {
+      console.error('Update password error:', error);
+      if (error.code === 'auth/requires-recent-login') {
+        alert('Para sua segurança, você precisa sair e entrar novamente no sistema antes de alterar a senha do administrador.');
+      } else {
+        alert('Erro ao atualizar senha: ' + error.message);
+      }
+    } finally {
+      setIsUpdatingPassword(false);
     }
   };
 
@@ -1980,6 +2178,32 @@ function AdminSettingsView({ settings, onUpdate }: { settings: TerreiroSettings 
               onChange={(e: any) => setImportUrl(e.target.value)}
             />
             <Button variant="secondary" onClick={handleImport} className="w-full sm:w-auto">Importar</Button>
+          </div>
+        </div>
+        <div className="pt-8 border-t border-emerald-50 space-y-4">
+          <h5 className="font-bold text-emerald-900">Segurança da Conta</h5>
+          <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 space-y-4">
+            <div className="flex items-center gap-3 text-emerald-700">
+              <ShieldCheck size={20} />
+              <span className="font-bold">Alterar Senha do Administrador</span>
+            </div>
+            <p className="text-sm text-emerald-600">Digite abaixo a nova senha que deseja utilizar para o perfil administrador.</p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Input 
+                type="password" 
+                placeholder="Nova senha (mín. 6 caracteres)" 
+                className="flex-1"
+                value={newAdminPassword}
+                onChange={(e: any) => setNewAdminPassword(e.target.value)}
+              />
+              <Button 
+                onClick={handleUpdateAdminPassword}
+                disabled={isUpdatingPassword || newAdminPassword.length < 6}
+                className="whitespace-nowrap"
+              >
+                {isUpdatingPassword ? <Loader2 className="animate-spin" size={20} /> : 'Atualizar Senha'}
+              </Button>
+            </div>
           </div>
         </div>
         <Button onClick={handleSave} className="w-full">Salvar Configurações</Button>
